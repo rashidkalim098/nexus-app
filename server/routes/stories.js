@@ -5,7 +5,6 @@ import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { db } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
-import { peerUser } from "../lib/serialize.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
@@ -33,6 +32,12 @@ const upload = multer({
 
 const router = Router();
 
+function publicUser(user) {
+  if (!user) return null;
+  const { passwordHash, ...safe } = user;
+  return safe;
+}
+
 function isExpired(story) {
   return new Date(story.expiresAt).getTime() < Date.now();
 }
@@ -52,7 +57,7 @@ function serialize(story, viewerId) {
     viewCount: views.length,
     viewedByMe: views.some((v) => v.viewerId === viewerId),
     viewers: story.userId === viewerId
-      ? views.map((v) => peerUser(db.find("users", (u) => u.id === v.viewerId), viewerId)).filter(Boolean)
+      ? views.map((v) => publicUser(db.find("users", (u) => u.id === v.viewerId))).filter(Boolean)
       : undefined,
   };
 }

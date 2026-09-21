@@ -4,7 +4,6 @@ import crypto from "crypto";
 import { db } from "../db.js";
 import { sendOtpEmail, mailDebugEnabled } from "../mailer.js";
 import { requireAuth, signToken } from "../middleware/auth.js";
-import { publicUser } from "../lib/serialize.js";
 
 const router = Router();
 
@@ -15,6 +14,12 @@ const MAX_ATTEMPTS = 5;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
+
+function publicUser(user) {
+  if (!user) return null;
+  const { passwordHash, ...safe } = user;
+  return safe;
+}
 
 function makeCode() {
   return String(crypto.randomInt(100000, 1000000));
@@ -85,7 +90,6 @@ router.post("/register", async (req, res) => {
     isPro: false,
     isVerified: false,
     createdAt: new Date().toISOString(),
-    lastActiveAt: new Date().toISOString(),
   };
   db.insert("users", user);
 
@@ -230,6 +234,56 @@ router.get("/me", requireAuth, (req, res) => {
   const user = db.find("users", (u) => u.id === req.userId);
   if (!user) return res.status(404).json({ error: "Account not found." });
   res.json({ user: publicUser(user) });
+});
+
+/* ---------------------------------------------------------------- */
+/* POST /api/auth/change-password                                     */
+/* ---------------------------------------------------------------- */
+router.post("/change-password", requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) return res.status(400).json({ error: "Missing fields." });
+  if (newPassword.length < 8 || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+    return res.status(400).json({ error: "New password needs 8+ chars, one uppercase letter and one number." });
+  }
+  const user = db.find("users", (u) => u.id === req.userId);
+  if (!user) return res.status(404).json({ error: "Account not found." });
+
+  const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!ok) return res.status(401).json({ error: "Current password is incorrect." });
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  db.update("users", (u) => u.id === user.id, () => ({ passwordHash }));
+  res.json({ ok: true });
+});
+
+/* ---------------------------------------------------------------- */
+/* DELETE /api/auth/me — permanently delete the account and its data  */
+/* ---------------------------------------------------------------- */
+router.delete("/me", requireAuth, async (req, res) => {
+  const { password } = req.body || {};
+  const user = db.find("users", (u) => u.id === req.userId);
+  if (!user) return res.status(404).json({ error: "Account not found." });
+  if (!password) return res.status(400).json({ error: "Enter your password to confirm." });
+  const ok = await bcrypt.compare(password, user.passwordHash);
+  if (!ok) return res.status(401).json({ error: "Incorrect password." });
+
+  const uid = user.id;
+  db.remove("users", (u) => u.id === uid);
+  db.remove("posts", (p) => p.authorId === uid);
+  db.remove("comments", (c) => c.authorId === uid);
+  db.remove("postLikes", (l) => l.userId === uid);
+  db.remove("postSaves", (s) => s.userId === uid);
+  db.remove("stories", (s) => s.userId === uid);
+  db.remove("storyViews", (v) => v.viewerId === uid);
+  db.remove("spaceMembers", (m) => m.userId === uid);
+  db.remove("follows", (f) => f.followerId === uid || f.followingId === uid);
+  db.remove("notifications", (n) => n.userId === uid || n.actorId === uid);
+  db.remove("reports", (r) => r.reporterId === uid);
+  const myConvoIds = db.filter("conversations", (c) => c.memberIds.includes(uid)).map((c) => c.id);
+  db.remove("conversations", (c) => c.memberIds.includes(uid));
+  db.remove("messages", (m) => myConvoIds.includes(m.conversationId));
+
+  res.json({ ok: true });
 });
 
 export default router;

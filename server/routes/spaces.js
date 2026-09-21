@@ -1,43 +1,25 @@
 import { Router } from "express";
+import crypto from "crypto";
 import { db } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
-import { peerUser } from "../lib/serialize.js";
+import { miniUser } from "../serialize.js";
 
 const router = Router();
+const genId = (prefix) => `${prefix}_${crypto.randomBytes(8).toString("hex")}`;
 
-// The original set of default communities NEXUS ships with. These are real
-// rows in the database — anyone can join/leave/post in them like any other
-// space, they're just seeded once so the app isn't an empty room on day one.
-const DEFAULT_SPACES = [
-  { id: "sp_design", name: "Design Collective", category: "Design", emoji: "\u25C8", desc: "Critique, share, and grow as a designer.",
-    rules: ["Be constructive in critiques", "No unsolicited DMs from posts", "Credit original sources"] },
-  { id: "sp_fe", name: "Frontend Devs", category: "Tech", emoji: "\u25C6", desc: "React, Vite, and the modern web.",
-    rules: ["Format code blocks", "Search before asking", "No unpaid job posts"] },
-  { id: "sp_photo", name: "Analog Photography", category: "Art", emoji: "\u25C9", desc: "Film shooters sharing frames and technique.",
-    rules: ["Include camera + film stock", "No AI-generated images"] },
-  { id: "sp_indie", name: "Indie Music Makers", category: "Music", emoji: "\u266B", desc: "Bedroom producers and songwriters.",
-    rules: ["Feedback Fridays only for full tracks", "Tag genre in post"] },
-  { id: "sp_speed", name: "Speedrun Central", category: "Gaming", emoji: "\u25B2", desc: "Routes, splits, and world records.",
-    rules: ["Verify runs with video", "No spoilers without tags"] },
-  { id: "sp_run", name: "Morning Runners", category: "Fitness", emoji: "\u25CF", desc: "Early miles and accountability.",
-    rules: ["Log your run to post", "Be kind to beginners"] },
-  { id: "sp_pack", name: "Backpackers Guild", category: "Travel", emoji: "\u25A0", desc: "Budget routes and packing lists.",
-    rules: ["No unlicensed tour ads", "Share real costs"] },
-];
-
-export function ensureDefaultSpaces() {
-  const existing = db.filter("spaces", () => true);
-  for (const def of DEFAULT_SPACES) {
-    if (!existing.some((s) => s.id === def.id)) {
-      db.insert("spaces", { ...def, createdAt: new Date().toISOString() });
-    }
-  }
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
-function serializeSpace(space, viewerId) {
-  const members = db.filter("spaceMembers", (m) => m.spaceId === space.id);
-  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  const postsToday = db.filter("posts", (p) => p.communityId === space.id && new Date(p.createdAt).getTime() > dayAgo).length;
+function serialize(space, userId) {
+  const memberCount = db.filter("spaceMembers", (m) => m.spaceId === space.id).length;
+  const postsToday = db.filter(
+    "posts",
+    (p) => p.spaceId === space.id && new Date(p.createdAt) >= startOfToday()
+  ).length;
+  const joined = !!db.find("spaceMembers", (m) => m.spaceId === space.id && m.userId === userId);
   return {
     id: space.id,
     name: space.name,
@@ -45,52 +27,75 @@ function serializeSpace(space, viewerId) {
     emoji: space.emoji,
     desc: space.desc,
     rules: space.rules,
-    members: members.length,
+    ownerId: space.ownerId,
+    createdAt: space.createdAt,
+    members: memberCount,
     postsToday,
-    joined: members.some((m) => m.userId === viewerId),
+    joined,
   };
 }
 
-/* ---------------------------------------------------------------- */
-/* GET /api/spaces                                                    */
-/* ---------------------------------------------------------------- */
+/* GET /api/spaces */
 router.get("/", requireAuth, (req, res) => {
-  const spaces = db.filter("spaces", () => true);
-  res.json({ spaces: spaces.map((s) => serializeSpace(s, req.userId)) });
+  const spaces = db.get("spaces").map((s) => serialize(s, req.userId));
+  res.json({ spaces });
 });
 
-/* ---------------------------------------------------------------- */
-/* POST /api/spaces/:id/join — toggles                                */
-/* ---------------------------------------------------------------- */
-router.post("/:id/join", requireAuth, (req, res) => {
+/* GET /api/spaces/:id */
+router.get("/:id", requireAuth, (req, res) => {
   const space = db.find("spaces", (s) => s.id === req.params.id);
   if (!space) return res.status(404).json({ error: "Space not found." });
-
-  const existing = db.find("spaceMembers", (m) => m.spaceId === space.id && m.userId === req.userId);
-  if (existing) {
-    db.remove("spaceMembers", (m) => m.spaceId === space.id && m.userId === req.userId);
-  } else {
-    db.insert("spaceMembers", { spaceId: space.id, userId: req.userId, joinedAt: new Date().toISOString() });
-  }
-  res.json({ space: serializeSpace(space, req.userId) });
+  res.json({ space: serialize(space, req.userId) });
 });
 
-/* ---------------------------------------------------------------- */
-/* GET /api/spaces/:id/members                                        */
-/* ---------------------------------------------------------------- */
+/* GET /api/spaces/:id/members */
 router.get("/:id/members", requireAuth, (req, res) => {
   const space = db.find("spaces", (s) => s.id === req.params.id);
   if (!space) return res.status(404).json({ error: "Space not found." });
-
-  const rows = db.filter("spaceMembers", (m) => m.spaceId === space.id).sort((a, b) => new Date(a.joinedAt) - new Date(b.joinedAt));
-  const members = rows
-    .map((m, i) => {
-      const user = db.find("users", (u) => u.id === m.userId);
-      if (!user) return null;
-      return { ...peerUser(user, req.userId), role: i === 0 ? "Owner" : i === 1 ? "Moderator" : "Member" };
-    })
-    .filter(Boolean);
+  const members = db.filter("spaceMembers", (m) => m.spaceId === space.id).map((m) => {
+    const u = db.find("users", (u) => u.id === m.userId);
+    return { ...miniUser(u), isOwner: space.ownerId === m.userId, joinedAt: m.joinedAt };
+  }).filter((m) => m.id);
   res.json({ members });
+});
+
+/* POST /api/spaces — create a new space (creator auto-joins) */
+router.post("/", requireAuth, (req, res) => {
+  const { name, category, emoji, desc } = req.body || {};
+  if (!name || name.trim().length < 3) return res.status(400).json({ error: "Give your space a name (3+ characters)." });
+  if (!category) return res.status(400).json({ error: "Choose a category." });
+
+  const space = {
+    id: genId("sp"),
+    name: name.trim(),
+    category,
+    emoji: emoji || "\u25C6",
+    desc: (desc || "").trim().slice(0, 300),
+    rules: ["Be respectful", "Stay on topic"],
+    ownerId: req.userId,
+    createdAt: new Date().toISOString(),
+  };
+  db.insert("spaces", space);
+  db.insert("spaceMembers", { spaceId: space.id, userId: req.userId, joinedAt: new Date().toISOString() });
+  res.status(201).json({ space: serialize(space, req.userId) });
+});
+
+/* POST /api/spaces/:id/join */
+router.post("/:id/join", requireAuth, (req, res) => {
+  const space = db.find("spaces", (s) => s.id === req.params.id);
+  if (!space) return res.status(404).json({ error: "Space not found." });
+  if (!db.find("spaceMembers", (m) => m.spaceId === space.id && m.userId === req.userId)) {
+    db.insert("spaceMembers", { spaceId: space.id, userId: req.userId, joinedAt: new Date().toISOString() });
+  }
+  res.json({ space: serialize(space, req.userId) });
+});
+
+/* POST /api/spaces/:id/leave */
+router.post("/:id/leave", requireAuth, (req, res) => {
+  const space = db.find("spaces", (s) => s.id === req.params.id);
+  if (!space) return res.status(404).json({ error: "Space not found." });
+  db.remove("spaceMembers", (m) => m.spaceId === space.id && m.userId === req.userId);
+  res.json({ space: serialize(space, req.userId) });
 });
 
 export default router;

@@ -16,17 +16,46 @@ const EMPTY_DB = {
   otps: [],
   stories: [],
   storyViews: [],
+  spaces: [],
+  spaceMembers: [],
   posts: [],
   postLikes: [],
   postSaves: [],
   comments: [],
-  spaces: [],
-  spaceMembers: [],
+  follows: [],
   notifications: [],
   conversations: [],
   messages: [],
-  follows: [],
+  reports: [],
 };
+
+const SEED_SPACES = [
+  { name: "Design Collective", category: "Design", emoji: "\u25C8", desc: "Critique, share, and grow as a designer.",
+    rules: ["Be constructive in critiques", "No unsolicited DMs from posts", "Credit original sources"] },
+  { name: "Frontend Devs", category: "Tech", emoji: "\u25C6", desc: "React, Vite, and the modern web.",
+    rules: ["Format code blocks", "Search before asking", "No unpaid job posts"] },
+  { name: "Analog Photography", category: "Art", emoji: "\u25C9", desc: "Film shooters sharing frames and technique.",
+    rules: ["Include camera + film stock", "No AI-generated images"] },
+  { name: "Indie Music Makers", category: "Music", emoji: "\u266B", desc: "Bedroom producers and songwriters.",
+    rules: ["Feedback Fridays only for full tracks", "Tag genre in post"] },
+  { name: "Speedrun Central", category: "Gaming", emoji: "\u25B2", desc: "Routes, splits, and world records.",
+    rules: ["Verify runs with video", "No spoilers without tags"] },
+  { name: "Morning Runners", category: "Fitness", emoji: "\u25CF", desc: "Early miles and accountability.",
+    rules: ["Log your run to post", "Be kind to beginners"] },
+  { name: "Backpackers Guild", category: "Travel", emoji: "\u25A0", desc: "Budget routes and packing lists.",
+    rules: ["No unlicensed tour ads", "Share real costs"] },
+];
+
+function seedSpacesIfEmpty() {
+  if (cache.spaces.length > 0) return;
+  cache.spaces = SEED_SPACES.map((s, i) => ({
+    id: `sp_${i}_${Date.now().toString(36)}`,
+    ownerId: null,
+    createdAt: new Date().toISOString(),
+    ...s,
+  }));
+  persist();
+}
 
 function ensureFile() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -106,3 +135,5 @@ process.on("exit", () => {
     /* ignore */
   }
 });
+
+seedSpacesIfEmpty();

@@ -1,15 +1,15 @@
 import { Router } from "express";
 import multer from "multer";
 import path from "path";
-import { fileURLToPath } from "url";
 import crypto from "crypto";
+import { fileURLToPath } from "url";
 import { db } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
+import { miniUser, notify } from "../serialize.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
 const genId = (prefix) => `${prefix}_${crypto.randomBytes(8).toString("hex")}`;
-const router = Router();
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
@@ -20,98 +20,79 @@ const storage = multer.diskStorage({
 });
 const upload = multer({
   storage,
-  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB
+  limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (!file.mimetype.startsWith("image/")) return cb(new Error("Only image files are allowed on posts."));
+    if (!file.mimetype.startsWith("image/")) return cb(new Error("Only image files are allowed."));
     cb(null, true);
   },
 });
 
-function notify(userId, actorId, type, text, extra = {}) {
-  if (!userId || userId === actorId) return; // never notify yourself
-  db.insert("notifications", {
-    id: genId("notif"),
-    userId,
-    actorId,
-    type,
-    text,
-    read: false,
-    createdAt: new Date().toISOString(),
-    ...extra,
-  });
-}
+const router = Router();
 
-function serializeComment(c) {
-  return { id: c.id, authorId: c.authorId, text: c.text, createdAt: c.createdAt };
-}
-
-function serializePost(post, viewerId) {
-  const likes = db.filter("postLikes", (l) => l.postId === post.id);
-  const saves = db.filter("postSaves", (s) => s.postId === post.id);
-  const comments = db
-    .filter("comments", (c) => c.postId === post.id)
-    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
-    .map(serializeComment);
+function serialize(post, viewerId) {
+  const author = db.find("users", (u) => u.id === post.authorId);
+  const space = post.spaceId ? db.find("spaces", (s) => s.id === post.spaceId) : null;
+  const likeCount = db.filter("postLikes", (l) => l.postId === post.id).length;
+  const saveCount = db.filter("postSaves", (s) => s.postId === post.id).length;
+  const commentCount = db.filter("comments", (c) => c.postId === post.id).length;
   return {
     id: post.id,
-    authorId: post.authorId,
-    communityId: post.communityId || null,
     body: post.body,
-    mediaUrl: post.mediaUrl || null,
+    mediaUrl: post.mediaUrl,
     createdAt: post.createdAt,
-    likes: likes.length,
-    liked: likes.some((l) => l.userId === viewerId),
-    saves: saves.length,
-    saved: saves.some((s) => s.userId === viewerId),
-    comments,
+    author: miniUser(author),
+    space: space ? { id: space.id, name: space.name } : null,
+    likes: likeCount,
+    saves: saveCount,
+    commentCount,
+    liked: !!db.find("postLikes", (l) => l.postId === post.id && l.userId === viewerId),
+    saved: !!db.find("postSaves", (s) => s.postId === post.id && s.userId === viewerId),
+    isOwn: post.authorId === viewerId,
   };
 }
 
-/* ---------------------------------------------------------------- */
-/* GET /api/posts?communityId=xxx                                     */
-/* ---------------------------------------------------------------- */
+/* GET /api/posts?spaceId=&authorId=&saved=true */
 router.get("/", requireAuth, (req, res) => {
-  const { communityId } = req.query;
-  let posts = db.filter("posts", () => true);
-  if (communityId) posts = posts.filter((p) => p.communityId === communityId);
-  posts = posts.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  res.json({ posts: posts.map((p) => serializePost(p, req.userId)) });
+  const { spaceId, authorId, saved } = req.query;
+  let posts = db.get("posts");
+  if (spaceId) posts = posts.filter((p) => p.spaceId === spaceId);
+  if (authorId) posts = posts.filter((p) => p.authorId === authorId);
+  if (saved === "true") {
+    const savedIds = new Set(db.filter("postSaves", (s) => s.userId === req.userId).map((s) => s.postId));
+    posts = posts.filter((p) => savedIds.has(p.id));
+  }
+  const sorted = [...posts].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json({ posts: sorted.map((p) => serialize(p, req.userId)) });
 });
 
-/* ---------------------------------------------------------------- */
-/* POST /api/posts — multipart (text + optional image)                */
-/* ---------------------------------------------------------------- */
+/* POST /api/posts */
 router.post("/", requireAuth, upload.single("media"), (req, res) => {
-  const text = (req.body?.body || "").trim();
-  const communityId = req.body?.communityId || null;
-  if (!text && !req.file) return res.status(400).json({ error: "Write something or attach an image to post." });
-  if (text.length > 500) return res.status(400).json({ error: "Posts are limited to 500 characters." });
-
-  if (communityId) {
-    const space = db.find("spaces", (s) => s.id === communityId);
-    if (!space) return res.status(404).json({ error: "That space no longer exists." });
+  const { body, spaceId } = req.body || {};
+  if ((!body || !body.trim()) && !req.file) {
+    return res.status(400).json({ error: "Write something or add a photo to post." });
+  }
+  if (body && body.length > 500) return res.status(400).json({ error: "Posts are limited to 500 characters." });
+  if (spaceId && !db.find("spaces", (s) => s.id === spaceId)) {
+    return res.status(404).json({ error: "That space doesn't exist." });
   }
 
   const post = {
     id: genId("post"),
     authorId: req.userId,
-    communityId: communityId || null,
-    body: text,
+    spaceId: spaceId || null,
+    body: (body || "").trim(),
     mediaUrl: req.file ? `/uploads/${req.file.filename}` : null,
     createdAt: new Date().toISOString(),
   };
   db.insert("posts", post);
-  res.status(201).json({ post: serializePost(post, req.userId) });
+  res.status(201).json({ post: serialize(post, req.userId) });
 });
 
-/* ---------------------------------------------------------------- */
-/* DELETE /api/posts/:id                                              */
-/* ---------------------------------------------------------------- */
+/* DELETE /api/posts/:id */
 router.delete("/:id", requireAuth, (req, res) => {
   const post = db.find("posts", (p) => p.id === req.params.id);
   if (!post) return res.status(404).json({ error: "Post not found." });
   if (post.authorId !== req.userId) return res.status(403).json({ error: "You can only delete your own posts." });
-
   db.remove("posts", (p) => p.id === post.id);
   db.remove("postLikes", (l) => l.postId === post.id);
   db.remove("postSaves", (s) => s.postId === post.id);
@@ -119,53 +100,72 @@ router.delete("/:id", requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-/* ---------------------------------------------------------------- */
-/* POST /api/posts/:id/like — toggles                                 */
-/* ---------------------------------------------------------------- */
+/* POST /api/posts/:id/like — toggle */
 router.post("/:id/like", requireAuth, (req, res) => {
   const post = db.find("posts", (p) => p.id === req.params.id);
   if (!post) return res.status(404).json({ error: "Post not found." });
-
   const existing = db.find("postLikes", (l) => l.postId === post.id && l.userId === req.userId);
   if (existing) {
     db.remove("postLikes", (l) => l.postId === post.id && l.userId === req.userId);
   } else {
     db.insert("postLikes", { postId: post.id, userId: req.userId, createdAt: new Date().toISOString() });
-    notify(post.authorId, req.userId, "like", "liked your post", { postId: post.id });
+    notify(post.authorId, { type: "like", actorId: req.userId, text: "liked your post", postId: post.id });
   }
-  res.json({ post: serializePost(post, req.userId) });
+  res.json({ post: serialize(post, req.userId) });
 });
 
-/* ---------------------------------------------------------------- */
-/* POST /api/posts/:id/save — toggles                                 */
-/* ---------------------------------------------------------------- */
+/* POST /api/posts/:id/save — toggle */
 router.post("/:id/save", requireAuth, (req, res) => {
   const post = db.find("posts", (p) => p.id === req.params.id);
   if (!post) return res.status(404).json({ error: "Post not found." });
-
   const existing = db.find("postSaves", (s) => s.postId === post.id && s.userId === req.userId);
   if (existing) db.remove("postSaves", (s) => s.postId === post.id && s.userId === req.userId);
   else db.insert("postSaves", { postId: post.id, userId: req.userId, createdAt: new Date().toISOString() });
-
-  res.json({ post: serializePost(post, req.userId) });
+  res.json({ post: serialize(post, req.userId) });
 });
 
-/* ---------------------------------------------------------------- */
-/* POST /api/posts/:id/comments                                       */
-/* ---------------------------------------------------------------- */
+/* GET /api/posts/:id/comments */
+router.get("/:id/comments", requireAuth, (req, res) => {
+  const post = db.find("posts", (p) => p.id === req.params.id);
+  if (!post) return res.status(404).json({ error: "Post not found." });
+  const comments = db.filter("comments", (c) => c.postId === post.id)
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+    .map((c) => ({ id: c.id, text: c.text, createdAt: c.createdAt, author: miniUser(db.find("users", (u) => u.id === c.authorId)) }));
+  res.json({ comments });
+});
+
+/* POST /api/posts/:id/comments */
 router.post("/:id/comments", requireAuth, (req, res) => {
   const post = db.find("posts", (p) => p.id === req.params.id);
   if (!post) return res.status(404).json({ error: "Post not found." });
+  const { text } = req.body || {};
+  if (!text || !text.trim()) return res.status(400).json({ error: "Write a comment first." });
 
-  const text = (req.body?.text || "").trim();
-  if (!text) return res.status(400).json({ error: "Write a comment first." });
-  if (text.length > 280) return res.status(400).json({ error: "Comments are limited to 280 characters." });
-
-  const comment = { id: genId("cmt"), postId: post.id, authorId: req.userId, text, createdAt: new Date().toISOString() };
+  const comment = {
+    id: genId("cmt"),
+    postId: post.id,
+    authorId: req.userId,
+    text: text.trim().slice(0, 280),
+    createdAt: new Date().toISOString(),
+  };
   db.insert("comments", comment);
-  notify(post.authorId, req.userId, "comment", "commented on your post", { postId: post.id });
+  notify(post.authorId, { type: "comment", actorId: req.userId, text: "commented on your post", postId: post.id });
+  res.status(201).json({ comment: { ...comment, author: miniUser(db.find("users", (u) => u.id === req.userId)) } });
+});
 
-  res.status(201).json({ post: serializePost(post, req.userId) });
+/* POST /api/posts/:id/report */
+router.post("/:id/report", requireAuth, (req, res) => {
+  const post = db.find("posts", (p) => p.id === req.params.id);
+  if (!post) return res.status(404).json({ error: "Post not found." });
+  const { reason } = req.body || {};
+  db.insert("reports", {
+    id: genId("rpt"),
+    postId: post.id,
+    reporterId: req.userId,
+    reason: (reason || "Not specified").slice(0, 300),
+    createdAt: new Date().toISOString(),
+  });
+  res.json({ ok: true });
 });
 
 export default router;

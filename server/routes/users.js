@@ -5,7 +5,7 @@ import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { db } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
-import { peerUser, publicUser } from "../lib/serialize.js";
+import { publicUser, miniUser, notify } from "../serialize.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
@@ -30,13 +30,13 @@ const upload = multer({
 
 const router = Router();
 
-/* ---------------------------------------------------------------- */
-/* GET /api/users — everyone on NEXUS (for mentions, chat, members)   */
-/* ---------------------------------------------------------------- */
-router.get("/", requireAuth, (req, res) => {
-  const all = db.filter("users", () => true).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-  res.json({ users: all.map((u) => peerUser(u, req.userId)) });
-});
+function withCounts(user, viewerId) {
+  const followers = db.filter("follows", (f) => f.followingId === user.id).length;
+  const following = db.filter("follows", (f) => f.followerId === user.id).length;
+  const postsCount = db.filter("posts", (p) => p.authorId === user.id).length;
+  const isFollowing = !!db.find("follows", (f) => f.followerId === viewerId && f.followingId === user.id);
+  return { ...publicUser(user), followers, following, postsCount, isFollowing, isSelf: user.id === viewerId };
+}
 
 /* ---------------------------------------------------------------- */
 /* PATCH /api/users/me — update profile fields + avatar/cover photo   */
@@ -81,11 +81,58 @@ router.patch(
 );
 
 /* ---------------------------------------------------------------- */
-/* Follow / unfollow — real, stored in the "follows" table            */
+/* GET /api/users/search?q= — find people to follow or message        */
 /* ---------------------------------------------------------------- */
+router.get("/search", requireAuth, (req, res) => {
+  const q = String(req.query.q || "").trim().toLowerCase();
+  if (q.length < 1) return res.json({ users: [] });
+  const results = db.filter(
+    "users",
+    (u) => u.id !== req.userId && (u.name.toLowerCase().includes(q) || u.handle.toLowerCase().includes(q))
+  ).slice(0, 15).map((u) => withCounts(u, req.userId));
+  res.json({ users: results });
+});
+
+/* ---------------------------------------------------------------- */
+/* GET /api/users/by-handle/:handle — exact lookup (includes yourself)*/
+/* Declared before "/:id" so the literal path wins the match.         */
+/* ---------------------------------------------------------------- */
+router.get("/by-handle/:handle", requireAuth, (req, res) => {
+  const handle = String(req.params.handle || "").toLowerCase();
+  const user = db.find("users", (u) => u.handle.toLowerCase() === handle);
+  if (!user) return res.status(404).json({ error: "Account not found." });
+  res.json({ user: withCounts(user, req.userId) });
+});
+
+/* ---------------------------------------------------------------- */
+/* GET /api/users/:id — public profile with follow/post counts        */
+/* ---------------------------------------------------------------- */
+router.get("/:id", requireAuth, (req, res) => {
+  const user = db.find("users", (u) => u.id === req.params.id);
+  if (!user) return res.status(404).json({ error: "Account not found." });
+  res.json({ user: withCounts(user, req.userId) });
+});
+
+/* GET /api/users/:id/followers */
+router.get("/:id/followers", requireAuth, (req, res) => {
+  const followers = db.filter("follows", (f) => f.followingId === req.params.id)
+    .map((f) => miniUser(db.find("users", (u) => u.id === f.followerId)))
+    .filter(Boolean);
+  res.json({ users: followers });
+});
+
+/* GET /api/users/:id/following */
+router.get("/:id/following", requireAuth, (req, res) => {
+  const following = db.filter("follows", (f) => f.followerId === req.params.id)
+    .map((f) => miniUser(db.find("users", (u) => u.id === f.followingId)))
+    .filter(Boolean);
+  res.json({ users: following });
+});
+
+/* POST /api/users/:id/follow — toggle */
 router.post("/:id/follow", requireAuth, (req, res) => {
   const target = db.find("users", (u) => u.id === req.params.id);
-  if (!target) return res.status(404).json({ error: "That person doesn't exist." });
+  if (!target) return res.status(404).json({ error: "Account not found." });
   if (target.id === req.userId) return res.status(400).json({ error: "You can't follow yourself." });
 
   const existing = db.find("follows", (f) => f.followerId === req.userId && f.followingId === target.id);
@@ -93,27 +140,9 @@ router.post("/:id/follow", requireAuth, (req, res) => {
     db.remove("follows", (f) => f.followerId === req.userId && f.followingId === target.id);
   } else {
     db.insert("follows", { followerId: req.userId, followingId: target.id, createdAt: new Date().toISOString() });
-    db.insert("notifications", {
-      id: genId("notif"), userId: target.id, actorId: req.userId, type: "follow",
-      text: "started following you", read: false, createdAt: new Date().toISOString(),
-    });
+    notify(target.id, { type: "follow", actorId: req.userId, text: "started following you" });
   }
-  res.json({
-    followed: !existing,
-    followerCount: db.filter("follows", (f) => f.followingId === target.id).length,
-  });
-});
-
-router.get("/:id/followers", requireAuth, (req, res) => {
-  const rows = db.filter("follows", (f) => f.followingId === req.params.id);
-  const followers = rows.map((f) => peerUser(db.find("users", (u) => u.id === f.followerId), req.userId)).filter(Boolean);
-  res.json({ followers });
-});
-
-router.get("/:id/following", requireAuth, (req, res) => {
-  const rows = db.filter("follows", (f) => f.followerId === req.params.id);
-  const following = rows.map((f) => peerUser(db.find("users", (u) => u.id === f.followingId), req.userId)).filter(Boolean);
-  res.json({ following });
+  res.json({ user: withCounts(target, req.userId) });
 });
 
 export default router;

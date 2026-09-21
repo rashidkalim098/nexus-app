@@ -43,6 +43,8 @@ export const api = {
   forgotPassword: (payload) => request("/auth/forgot-password", { method: "POST", body: payload }),
   resetPassword: (payload) => request("/auth/reset-password", { method: "POST", body: payload }),
   me: () => request("/auth/me"),
+  changePassword: (payload) => request("/auth/change-password", { method: "POST", body: payload }),
+  deleteAccount: (password) => request("/auth/me", { method: "DELETE", body: { password } }),
 
   listStories: () => request("/stories"),
   createStory: (formData) => request("/stories", { method: "POST", body: formData, isForm: true }),
@@ -50,31 +52,41 @@ export const api = {
   deleteStory: (id) => request(`/stories/${id}`, { method: "DELETE" }),
 
   updateProfile: (formData) => request("/users/me", { method: "PATCH", body: formData, isForm: true }),
-  listUsers: () => request("/users"),
-
-  listPosts: (communityId) => request(communityId ? `/posts?communityId=${encodeURIComponent(communityId)}` : "/posts"),
-  createPost: (formData) => request("/posts", { method: "POST", body: formData, isForm: true }),
-  likePost: (id) => request(`/posts/${id}/like`, { method: "POST" }),
-  savePost: (id) => request(`/posts/${id}/save`, { method: "POST" }),
-  commentOnPost: (id, text) => request(`/posts/${id}/comments`, { method: "POST", body: { text } }),
-  deletePost: (id) => request(`/posts/${id}`, { method: "DELETE" }),
-
-  followUser: (id) => request(`/users/${id}/follow`, { method: "POST" }),
-  listFollowers: (id) => request(`/users/${id}/followers`),
-  listFollowing: (id) => request(`/users/${id}/following`),
+  searchUsers: (q) => request(`/users/search?q=${encodeURIComponent(q)}`),
+  getUser: (id) => request(`/users/${id}`),
+  getUserByHandle: (handle) => request(`/users/by-handle/${encodeURIComponent(handle)}`),
+  getFollowers: (id) => request(`/users/${id}/followers`),
+  getFollowing: (id) => request(`/users/${id}/following`),
+  toggleFollow: (id) => request(`/users/${id}/follow`, { method: "POST" }),
 
   listSpaces: () => request("/spaces"),
+  getSpace: (id) => request(`/spaces/${id}`),
+  getSpaceMembers: (id) => request(`/spaces/${id}/members`),
+  createSpace: (payload) => request("/spaces", { method: "POST", body: payload }),
   joinSpace: (id) => request(`/spaces/${id}/join`, { method: "POST" }),
-  spaceMembers: (id) => request(`/spaces/${id}/members`),
+  leaveSpace: (id) => request(`/spaces/${id}/leave`, { method: "POST" }),
+
+  listPosts: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/posts${qs ? `?${qs}` : ""}`);
+  },
+  createPost: (formData) => request("/posts", { method: "POST", body: formData, isForm: true }),
+  deletePost: (id) => request(`/posts/${id}`, { method: "DELETE" }),
+  reportPost: (id, reason) => request(`/posts/${id}/report`, { method: "POST", body: { reason } }),
+  toggleLike: (id) => request(`/posts/${id}/like`, { method: "POST" }),
+  toggleSave: (id) => request(`/posts/${id}/save`, { method: "POST" }),
+  getComments: (id) => request(`/posts/${id}/comments`),
+  addComment: (id, text) => request(`/posts/${id}/comments`, { method: "POST", body: { text } }),
 
   listNotifications: () => request("/notifications"),
-  markAllNotificationsRead: () => request("/notifications/mark-all-read", { method: "POST" }),
+  markAllNotifsRead: () => request("/notifications/read-all", { method: "POST" }),
 
   listConversations: () => request("/conversations"),
-  startConversation: (userId) => request("/conversations", { method: "POST", body: { userId } }),
-  markConvoRead: (id) => request(`/conversations/${id}/read`, { method: "POST" }),
-  sendMessage: (convoId, formData) => request(`/conversations/${convoId}/messages`, { method: "POST", body: formData, isForm: true }),
-  reactToMessage: (convoId, msgId, emoji) => request(`/conversations/${convoId}/messages/${msgId}/react`, { method: "POST", body: { emoji } }),
+  startConversation: (userId) => request("/conversations/start", { method: "POST", body: { userId } }),
+  getMessages: (convoId) => request(`/conversations/${convoId}/messages`),
+  sendMessage: (convoId, text) => request(`/conversations/${convoId}/messages`, { method: "POST", body: { text } }),
+  sendMessageMedia: (convoId, formData) => request(`/conversations/${convoId}/messages`, { method: "POST", body: formData, isForm: true }),
+  reactMessage: (convoId, msgId, emoji) => request(`/conversations/${convoId}/messages/${msgId}/react`, { method: "POST", body: { emoji } }),
 };
 
 export function mediaUrl(pathOrUrl) {

@@ -53,11 +53,6 @@ function otpEmailHtml(code, purpose) {
   </div>`;
 }
 
-/**
- * Sends the OTP email. Returns { sent: boolean, debugCode?: string }.
- * If SMTP isn't configured, it logs the code to the server console instead
- * of throwing, so the app is still usable while you're setting email up.
- */
 export async function sendOtpEmail(to, code, purpose = "verify") {
   const copy = PURPOSE_COPY[purpose] || PURPOSE_COPY.verify;
 
@@ -69,13 +64,24 @@ export async function sendOtpEmail(to, code, purpose = "verify") {
     return { sent: false };
   }
 
-  await transporter.sendMail({
-    from: process.env.MAIL_FROM || process.env.SMTP_USER,
-    to,
-    subject: copy.subject,
-    html: otpEmailHtml(code, purpose),
-  });
-  return { sent: true };
+  try {
+    await transporter.sendMail({
+      from: process.env.MAIL_FROM || process.env.SMTP_USER,
+      to,
+      subject: copy.subject,
+      html: otpEmailHtml(code, purpose),
+    });
+    return { sent: true };
+  } catch (err) {
+    console.error(
+      `\n[EMAIL FAILED] Could not send OTP to ${to}: ${err.message}\n` +
+        `Falling back to printing the code here so you're not stuck:\n` +
+        `  Code for ${to} (${purpose}): ${code}\n` +
+        `Double-check SMTP_USER / SMTP_PASS in server/.env (Gmail App Passwords\n` +
+        `can expire or be revoked — generate a fresh one if this keeps happening).\n`
+    );
+    return { sent: false, failed: true };
+  }
 }
 
 export const mailDebugEnabled = String(process.env.MAIL_DEBUG || "false") === "true";
