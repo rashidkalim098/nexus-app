@@ -1,13 +1,16 @@
 import nodemailer from "nodemailer";
 
-const isMailConfigured = !!(
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const useResend = !!RESEND_API_KEY;
+
+const isSmtpConfigured = !!(
   process.env.SMTP_HOST &&
   process.env.SMTP_USER &&
   process.env.SMTP_PASS
 );
 
 let transporter = null;
-if (isMailConfigured) {
+if (!useResend && isSmtpConfigured) {
   transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
@@ -53,17 +56,55 @@ function otpEmailHtml(code, purpose) {
   </div>`;
 }
 
-export async function sendOtpEmail(to, code, purpose = "verify") {
+async function sendViaResend(to, code, purpose) {
   const copy = PURPOSE_COPY[purpose] || PURPOSE_COPY.verify;
+  const from = process.env.RESEND_FROM || "NEXUS <onboarding@resend.dev>";
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: [to],
+      subject: copy.subject,
+      html: otpEmailHtml(code, purpose),
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Resend API error (${res.status}): ${text || res.statusText}`);
+  }
+}
+
+export async function sendOtpEmail(to, code, purpose = "verify") {
+  if (useResend) {
+    try {
+      await sendViaResend(to, code, purpose);
+      return { sent: true };
+    } catch (err) {
+      console.error(
+        `\n[EMAIL FAILED] Could not send OTP to ${to} via Resend: ${err.message}\n` +
+          `Falling back to printing the code here so you're not stuck:\n` +
+          `  Code for ${to} (${purpose}): ${code}\n` +
+          `Double-check RESEND_API_KEY in your environment.\n`
+      );
+      return { sent: false, failed: true };
+    }
+  }
 
   if (!transporter) {
     console.log(
-      `\n[DEV MODE — no SMTP configured] OTP for ${to} (${purpose}): ${code}\n` +
-        `Set SMTP_HOST / SMTP_USER / SMTP_PASS in server/.env to send real emails.\n`
+      `\n[DEV MODE — no email service configured] OTP for ${to} (${purpose}): ${code}\n` +
+        `Set RESEND_API_KEY (recommended) or SMTP_HOST/SMTP_USER/SMTP_PASS to send real emails.\n`
     );
     return { sent: false };
   }
 
+  const copy = PURPOSE_COPY[purpose] || PURPOSE_COPY.verify;
   try {
     await transporter.sendMail({
       from: process.env.MAIL_FROM || process.env.SMTP_USER,
