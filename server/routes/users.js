@@ -49,8 +49,15 @@ router.patch(
     const user = db.find("users", (u) => u.id === req.userId);
     if (!user) return res.status(404).json({ error: "Account not found." });
 
-    const { name, handle, bio, location } = req.body || {};
+    const { name, handle, bio, location, website, social } = req.body || {};
     const updates = {};
+
+    function normalizeUrl(raw) {
+      const v = String(raw).trim();
+      if (!v) return "";
+      if (/^https?:\/\//i.test(v)) return v.slice(0, 200);
+      return `https://${v}`.slice(0, 200);
+    }
 
     if (name !== undefined) {
       if (name.trim().length < 2 || name.trim().length > 60) {
@@ -71,6 +78,8 @@ router.patch(
 
     if (bio !== undefined) updates.bio = String(bio).slice(0, 160);
     if (location !== undefined) updates.location = String(location).slice(0, 60);
+    if (website !== undefined) updates.website = normalizeUrl(website);
+    if (social !== undefined) updates.social = normalizeUrl(social);
 
     if (req.files?.avatar?.[0]) updates.avatar = `/uploads/${req.files.avatar[0].filename}`;
     if (req.files?.cover?.[0]) updates.cover = `/uploads/${req.files.cover[0].filename}`;

@@ -5,7 +5,7 @@ import {
   Check, X, LogOut, Settings, User, Home, MessageSquare, Sparkles,
   Smile, MoreHorizontal, Eye, EyeOff, MapPin, Award,
   AtSign, ChevronRight, Loader2, Compass, Gamepad2, Palette,
-  Code2, Music2, Dumbbell, Plane, Camera, ThumbsUp, Type, Trash2
+  Code2, Music2, Dumbbell, Plane, Camera, ThumbsUp, Type, Trash2, Globe, Link2
 } from "lucide-react";
 import { api, setToken, mediaUrl } from "./api";
 
@@ -1848,6 +1848,8 @@ function EditProfileModal({ currentUser, onClose, onUpdated, showToast }) {
   const [handle, setHandle] = useState(currentUser.handle || "");
   const [bio, setBio] = useState(currentUser.bio || "");
   const [location, setLocation] = useState(currentUser.location || "");
+  const [website, setWebsite] = useState(currentUser.website || "");
+  const [social, setSocial] = useState(currentUser.social || "");
   const [avatarFile, setAvatarFile] = useState(null);
   const [coverFile, setCoverFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState(mediaUrl(currentUser.avatar));
@@ -1879,6 +1881,8 @@ function EditProfileModal({ currentUser, onClose, onUpdated, showToast }) {
       form.append("handle", handle);
       form.append("bio", bio);
       form.append("location", location);
+      form.append("website", website);
+      form.append("social", social);
       if (avatarFile) form.append("avatar", avatarFile);
       if (coverFile) form.append("cover", coverFile);
       const { user } = await api.updateProfile(form);
@@ -1942,6 +1946,12 @@ function EditProfileModal({ currentUser, onClose, onUpdated, showToast }) {
         </Field>
         <Field label="Location">
           <input style={inputStyle} value={location} onChange={(e) => setLocation(e.target.value)} placeholder="City, Country" maxLength={60} />
+        </Field>
+        <Field label="Website">
+          <input style={inputStyle} value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="yoursite.com" maxLength={200} />
+        </Field>
+        <Field label="Social media link">
+          <input style={inputStyle} value={social} onChange={(e) => setSocial(e.target.value)} placeholder="instagram.com/you" maxLength={200} />
         </Field>
 
         {error && <div style={{ fontSize: 12.5, color: "var(--red)", marginBottom: 12 }}>{error}</div>}
@@ -2108,6 +2118,16 @@ function ProfileScreen({ currentUser, posts, spaces, onLike, onSave, onDelete, o
         <div style={{ padding: 14, fontSize: 13.5, color: "var(--text)", display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}><MapPin size={15} color="var(--text3)" /> {currentUser.location || "Location not set"}</div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}><Award size={15} color="var(--text3)" /> Joined {new Date(currentUser.createdAt).toLocaleDateString(undefined, { month: "long", year: "numeric" })}</div>
+          {currentUser.website && (
+            <a href={currentUser.website} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 8, alignItems: "center", color: "var(--accent2)", textDecoration: "none" }}>
+              <Globe size={15} /> {currentUser.website.replace(/^https?:\/\//, "")}
+            </a>
+          )}
+          {currentUser.social && (
+            <a href={currentUser.social} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 8, alignItems: "center", color: "var(--accent2)", textDecoration: "none" }}>
+              <Link2 size={15} /> {currentUser.social.replace(/^https?:\/\//, "")}
+            </a>
+          )}
         </div>
       )}
 
@@ -2212,6 +2232,16 @@ function UserProfileScreen({ userId, currentUser, onBack, onMessage, onOpenProfi
         <div style={{ fontSize: 13, color: "var(--text2)" }}>@{user.handle}</div>
         {user.bio && <div style={{ fontSize: 13.5, color: "var(--text)", marginTop: 8, lineHeight: 1.4 }}>{user.bio}</div>}
         {user.location && <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, fontSize: 12.5, color: "var(--text2)" }}><MapPin size={13} /> {user.location}</div>}
+        {user.website && (
+          <a href={user.website} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, fontSize: 12.5, color: "var(--accent2)", textDecoration: "none" }}>
+            <Globe size={13} /> {user.website.replace(/^https?:\/\//, "")}
+          </a>
+        )}
+        {user.social && (
+          <a href={user.social} target="_blank" rel="noopener noreferrer" style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, fontSize: 12.5, color: "var(--accent2)", textDecoration: "none" }}>
+            <Link2 size={13} /> {user.social.replace(/^https?:\/\//, "")}
+          </a>
+        )}
 
         <div style={{ display: "flex", background: "var(--bg2)", border: "1px solid var(--bg3)", borderRadius: 12, overflow: "hidden", margin: "14px 0" }}>
           {[["Posts", user.postsCount], ["Followers", user.followers], ["Following", user.following]].map(([label, val], i) => (

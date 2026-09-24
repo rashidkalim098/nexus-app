@@ -87,6 +87,8 @@ router.post("/register", async (req, res) => {
     cover: null,
     bio: "",
     location: "",
+    website: "",
+    social: "",
     isPro: false,
     isVerified: false,
     createdAt: new Date().toISOString(),
