@@ -1213,11 +1213,12 @@ function CreateStoryModal({ onClose, onCreated, showToast }) {
   );
 }
 
-function StoryViewer({ groups, startIndex, currentUser, onClose, onAdvancePastEnd, showToast }) {
+function StoryViewer({ groups, startIndex, currentUser, onClose, onAdvancePastEnd, onOpenProfile, showToast }) {
   const [groupIndex, setGroupIndex] = useState(startIndex);
   const [storyIndex, setStoryIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [showViewers, setShowViewers] = useState(false);
   const viewedRef = useRef(new Set());
   const rafRef = useRef(null);
   const DURATION = 5000;
@@ -1235,6 +1236,7 @@ function StoryViewer({ groups, startIndex, currentUser, onClose, onAdvancePastEn
   }, [story?.id]);
 
   const goNext = useCallback(() => {
+    setShowViewers(false);
     if (storyIndex < (group?.stories.length || 0) - 1) {
       setStoryIndex((i) => i + 1); setProgress(0);
     } else if (groupIndex < groups.length - 1) {
@@ -1245,6 +1247,7 @@ function StoryViewer({ groups, startIndex, currentUser, onClose, onAdvancePastEn
   }, [storyIndex, groupIndex, group, groups.length, onClose]);
 
   const goPrev = () => {
+    setShowViewers(false);
     if (storyIndex > 0) { setStoryIndex((i) => i - 1); setProgress(0); }
     else if (groupIndex > 0) {
       const prevGroup = groups[groupIndex - 1];
@@ -1330,8 +1333,29 @@ function StoryViewer({ groups, startIndex, currentUser, onClose, onAdvancePastEn
       </div>
 
       {isOwn && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", color: "#fff", fontSize: 12.5 }}>
+        <div
+          onClick={() => story.viewCount > 0 && setShowViewers((v) => !v)}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", color: "#fff", fontSize: 12.5, cursor: story.viewCount > 0 ? "pointer" : "default" }}
+        >
           <Eye size={15} /> {story.viewCount} view{story.viewCount === 1 ? "" : "s"}
+          {story.viewCount > 0 && <ChevronRight size={14} style={{ marginLeft: -2, transform: showViewers ? "rotate(90deg)" : "none" }} />}
+        </div>
+      )}
+
+      {isOwn && showViewers && (
+        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 10, display: "flex", flexDirection: "column", justifyContent: "flex-end" }} onClick={() => setShowViewers(false)}>
+          <div style={{ background: "#161620", borderRadius: "20px 20px 0 0", padding: 16, maxHeight: "55%", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Seen by {story.viewCount}</div>
+            {(story.viewers || []).map((v) => (
+              <div key={v.id} onClick={() => { onOpenProfile?.(v.id); setShowViewers(false); onClose(); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", cursor: "pointer" }}>
+                <StoryAvatarImg user={v} size={38} />
+                <div>
+                  <div style={{ color: "#fff", fontSize: 13, fontWeight: 700 }}>{v.name}</div>
+                  <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 11.5 }}>@{v.handle}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -1799,9 +1823,11 @@ const NOTIF_META = {
   like: { icon: Heart, ring: "var(--pink)" },
   comment: { icon: MessageCircle, ring: "var(--accent2)" },
   follow: { icon: Users, ring: "var(--green)" },
+  follow_request: { icon: Users, ring: "var(--amber)" },
+  follow_accepted: { icon: Users, ring: "var(--green)" },
 };
 
-function NotificationsScreen({ notifs, onMarkAll, onOpenProfile }) {
+function NotificationsScreen({ notifs, onMarkAll, onOpenProfile, onRespond }) {
   const unread = notifs.filter((n) => !n.read).length;
   return (
     <div>
@@ -1831,6 +1857,15 @@ function NotificationsScreen({ notifs, onMarkAll, onOpenProfile }) {
                 {n.actor && <strong>{n.actor.name} </strong>}{n.text}
               </div>
               <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 2 }}>{timeAgo(n.createdAt)}</div>
+              {n.type === "follow_request" && n.status === "pending" && (
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => onRespond(n.id, "accepted")} style={{ padding: "5px 14px", borderRadius: 999, border: "none", background: "var(--green)", color: "#04342C", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Accept</button>
+                  <button onClick={() => onRespond(n.id, "declined")} style={{ padding: "5px 14px", borderRadius: 999, border: "1px solid var(--bg3)", background: "transparent", color: "var(--text2)", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Decline</button>
+                </div>
+              )}
+              {n.type === "follow_request" && n.status && n.status !== "pending" && (
+                <div style={{ fontSize: 11.5, color: n.status === "accepted" ? "var(--green)" : "var(--text3)", marginTop: 4, fontWeight: 600, textTransform: "capitalize" }}>{n.status}</div>
+              )}
             </div>
             {!n.read && <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent2)", flexShrink: 0, marginTop: 4 }} />}
           </div>
@@ -2219,8 +2254,8 @@ function UserProfileScreen({ userId, currentUser, onBack, onMessage, onOpenProfi
           {!user.isSelf && (
             <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
               <button onClick={() => onMessage(user.id)} style={{ background: "var(--bg2)", border: "1px solid var(--bg3)", color: "var(--text)", borderRadius: 999, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Message</button>
-              <button onClick={toggleFollow} disabled={followLoading} style={{ background: user.isFollowing ? "transparent" : "linear-gradient(135deg, var(--accent), var(--pink))", border: user.isFollowing ? "1px solid var(--bg3)" : "none", color: user.isFollowing ? "var(--text2)" : "#fff", borderRadius: 999, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                {user.isFollowing ? "Following" : "Follow"}
+              <button onClick={toggleFollow} disabled={followLoading} style={{ background: user.followStatus === "none" ? "linear-gradient(135deg, var(--accent), var(--pink))" : "transparent", border: user.followStatus === "none" ? "none" : "1px solid var(--bg3)", color: user.followStatus === "none" ? "#fff" : "var(--text2)", borderRadius: 999, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                {user.followStatus === "accepted" ? "Following" : user.followStatus === "pending" ? "Requested" : "Follow"}
               </button>
             </div>
           )}
@@ -2484,6 +2519,16 @@ export default function NexusApp() {
     setNotifs((ns) => ns.map((n) => ({ ...n, read: true })));
     try { await api.markAllNotifsRead(); } catch (e) { showToast(e.message); }
   };
+  const respondFollowRequest = async (notifId, status) => {
+    setNotifs((ns) => ns.map((n) => (n.id === notifId ? { ...n, status, read: true } : n)));
+    try {
+      await api.respondFollowRequest(notifId, status);
+      showToast(status === "accepted" ? "Follow request accepted" : "Follow request declined");
+    } catch (e) {
+      showToast(e.message);
+      refreshNotifs();
+    }
+  };
 
   /* ---------------- Chat ---------------- */
   const openConvo = (id, user) => {
@@ -2551,7 +2596,7 @@ export default function NexusApp() {
                   {screen === "chatThread" && activeConvoId && (
                     <ChatThreadScreen convoId={activeConvoId} initialUser={activeConvoUser} currentUser={currentUser} onBack={leaveChatThread} showToast={showToast} onRead={refreshConvos} />
                   )}
-                  {screen === "notifications" && <NotificationsScreen notifs={notifs} onMarkAll={markAllRead} onOpenProfile={openProfile} />}
+                  {screen === "notifications" && <NotificationsScreen notifs={notifs} onMarkAll={markAllRead} onOpenProfile={openProfile} onRespond={respondFollowRequest} />}
                   {screen === "profile" && <ProfileScreen currentUser={currentUser} posts={posts.filter((p) => p.author?.id === currentUser.id)} spaces={spaces} onLike={toggleLike} onSave={toggleSave} onDelete={deletePost} onOpenProfile={openProfile} showToast={showToast} onProfileUpdated={setCurrentUser} />}
                   {screen === "settings" && <SettingsScreen onBack={() => goto("profile")} onLogout={handleLogout} onAccountDeleted={handleAccountDeleted} showToast={showToast} />}
                   {screen === "userProfile" && activeProfileUserId && (
@@ -2572,6 +2617,7 @@ export default function NexusApp() {
                     startIndex={storyViewerIndex}
                     currentUser={currentUser}
                     onClose={() => { setStoryViewerIndex(null); refreshStories(); }}
+                    onOpenProfile={openProfile}
                     showToast={showToast}
                   />
                 )}

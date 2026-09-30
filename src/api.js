@@ -80,6 +80,7 @@ export const api = {
 
   listNotifications: () => request("/notifications"),
   markAllNotifsRead: () => request("/notifications/read-all", { method: "POST" }),
+  respondFollowRequest: (notifId, status) => request(`/notifications/${notifId}/respond`, { method: "POST", body: { status } }),
 
   listConversations: () => request("/conversations"),
   startConversation: (userId) => request("/conversations/start", { method: "POST", body: { userId } }),

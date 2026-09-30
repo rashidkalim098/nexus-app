@@ -19,16 +19,19 @@ export function miniUser(user) {
   return { id: user.id, name: user.name, handle: user.handle, avatar: user.avatar, status: computeStatus(user) };
 }
 
-export function notify(userId, { type, actorId = null, text, postId = null }) {
-  if (userId === actorId) return; // never notify yourself
-  db.insert("notifications", {
+export function notify(userId, { type, actorId = null, text, postId = null, status = null }) {
+  if (userId === actorId) return null; // never notify yourself
+  const notif = {
     id: `notif_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
     userId,
     type,
     actorId,
     postId,
     text,
+    status, // used by request-style notifications (e.g. "pending" for follow requests)
     read: false,
     createdAt: new Date().toISOString(),
-  });
+  };
+  db.insert("notifications", notif);
+  return notif;
 }

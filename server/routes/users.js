@@ -30,12 +30,24 @@ const upload = multer({
 
 const router = Router();
 
+// Old follow rows created before request-approval existed have no `status`
+// field — treat those as already accepted so nothing breaks for them.
+const statusOf = (f) => f.status || "accepted";
+
+function relationshipStatus(viewerId, targetId) {
+  const f = db.find("follows", (x) => x.followerId === viewerId && x.followingId === targetId);
+  return f ? statusOf(f) : "none";
+}
+
 function withCounts(user, viewerId) {
-  const followers = db.filter("follows", (f) => f.followingId === user.id).length;
-  const following = db.filter("follows", (f) => f.followerId === user.id).length;
+  const followers = db.filter("follows", (f) => f.followingId === user.id && statusOf(f) === "accepted").length;
+  const following = db.filter("follows", (f) => f.followerId === user.id && statusOf(f) === "accepted").length;
   const postsCount = db.filter("posts", (p) => p.authorId === user.id).length;
-  const isFollowing = !!db.find("follows", (f) => f.followerId === viewerId && f.followingId === user.id);
-  return { ...publicUser(user), followers, following, postsCount, isFollowing, isSelf: user.id === viewerId };
+  const followStatus = relationshipStatus(viewerId, user.id); // "none" | "pending" | "accepted"
+  return {
+    ...publicUser(user), followers, following, postsCount,
+    followStatus, isFollowing: followStatus === "accepted", isSelf: user.id === viewerId,
+  };
 }
 
 /* ---------------------------------------------------------------- */
@@ -124,7 +136,7 @@ router.get("/:id", requireAuth, (req, res) => {
 
 /* GET /api/users/:id/followers */
 router.get("/:id/followers", requireAuth, (req, res) => {
-  const followers = db.filter("follows", (f) => f.followingId === req.params.id)
+  const followers = db.filter("follows", (f) => f.followingId === req.params.id && statusOf(f) === "accepted")
     .map((f) => miniUser(db.find("users", (u) => u.id === f.followerId)))
     .filter(Boolean);
   res.json({ users: followers });
@@ -132,13 +144,15 @@ router.get("/:id/followers", requireAuth, (req, res) => {
 
 /* GET /api/users/:id/following */
 router.get("/:id/following", requireAuth, (req, res) => {
-  const following = db.filter("follows", (f) => f.followerId === req.params.id)
+  const following = db.filter("follows", (f) => f.followerId === req.params.id && statusOf(f) === "accepted")
     .map((f) => miniUser(db.find("users", (u) => u.id === f.followingId)))
     .filter(Boolean);
   res.json({ users: following });
 });
 
-/* POST /api/users/:id/follow — toggle */
+/* POST /api/users/:id/follow — send a follow request, cancel a pending
+   one, or unfollow if already accepted. Following someone now requires
+   them to accept, like a private-account request. */
 router.post("/:id/follow", requireAuth, (req, res) => {
   const target = db.find("users", (u) => u.id === req.params.id);
   if (!target) return res.status(404).json({ error: "Account not found." });
@@ -146,10 +160,16 @@ router.post("/:id/follow", requireAuth, (req, res) => {
 
   const existing = db.find("follows", (f) => f.followerId === req.userId && f.followingId === target.id);
   if (existing) {
+    // Was pending (cancel the request) or accepted (unfollow) — either way, remove it.
     db.remove("follows", (f) => f.followerId === req.userId && f.followingId === target.id);
+    // Also clear any notification tied to a still-pending request so it
+    // doesn't show stale Accept/Decline buttons after being cancelled.
+    if (statusOf(existing) === "pending") {
+      db.remove("notifications", (n) => n.type === "follow_request" && n.actorId === req.userId && n.userId === target.id && n.status === "pending");
+    }
   } else {
-    db.insert("follows", { followerId: req.userId, followingId: target.id, createdAt: new Date().toISOString() });
-    notify(target.id, { type: "follow", actorId: req.userId, text: "started following you" });
+    db.insert("follows", { followerId: req.userId, followingId: target.id, status: "pending", createdAt: new Date().toISOString() });
+    notify(target.id, { type: "follow_request", actorId: req.userId, text: "wants to follow you", status: "pending" });
   }
   res.json({ user: withCounts(target, req.userId) });
 });
