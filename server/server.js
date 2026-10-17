@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { serveUpload } from "./uploads.js";
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -14,6 +15,7 @@ import { seedStarterSpaces } from "./seed.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+app.use("/uploads", serveUpload);
 
 // Safety net: never let one bad request or a stray rejected promise take
 // the whole server down. Log it and keep running.

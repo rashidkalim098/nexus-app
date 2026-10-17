@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import pg from "pg";
 
 // A tiny dependency-free JSON file "database". This is plenty for a small
 // app like this and — unlike sqlite-style native modules — it can never
@@ -75,16 +76,48 @@ function load() {
   }
 }
 
-let cache = load();
+// ---------------------------------------------------------------
+// Storage: if DATABASE_URL is set (Render), everything is saved in a
+// hosted Postgres database so it survives restarts/redeploys.
+// If not set (your laptop), it falls back to the local JSON file.
+// ---------------------------------------------------------------
+const DATABASE_URL = process.env.DATABASE_URL || "";
+export const pool = DATABASE_URL
+  ? new pg.Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false }, max: 4 })
+  : null;
+
+async function loadRemote() {
+  await pool.query("CREATE TABLE IF NOT EXISTS nexus_state (id INT PRIMARY KEY, data JSONB NOT NULL)");
+  await pool.query("CREATE TABLE IF NOT EXISTS nexus_files (name TEXT PRIMARY KEY, mime TEXT, data BYTEA NOT NULL)");
+  const r = await pool.query("SELECT data FROM nexus_state WHERE id = 1");
+  if (r.rows.length) return { ...EMPTY_DB, ...r.rows[0].data };
+  return { ...EMPTY_DB };
+}
+
+let cache = pool ? await loadRemote() : load();
+console.log(pool ? "  Database: hosted Postgres (permanent)" : "  Database: local JSON file (temporary on free hosting!)");
 let writeTimer = null;
+let saving = Promise.resolve();
+
+function saveNow() {
+  if (pool) {
+    const snapshot = JSON.stringify(cache);
+    // queue writes one after another so they never overlap
+    saving = saving
+      .then(() => pool.query(
+        "INSERT INTO nexus_state (id, data) VALUES (1, $1::jsonb) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data",
+        [snapshot]
+      ))
+      .catch((e) => console.error("[DB SAVE FAILED]", e.message));
+    return saving;
+  }
+  fs.writeFileSync(DB_FILE, JSON.stringify(cache, null, 2));
+  return Promise.resolve();
+}
 
 function persist() {
   clearTimeout(writeTimer);
-  // Debounce disk writes slightly so bursts of calls in one request don't
-  // hit the filesystem repeatedly.
-  writeTimer = setTimeout(() => {
-    fs.writeFileSync(DB_FILE, JSON.stringify(cache, null, 2));
-  }, 25);
+  writeTimer = setTimeout(saveNow, pool ? 300 : 25);
 }
 
 export const db = {
@@ -126,14 +159,14 @@ export const db = {
   },
 };
 
-// Flush any pending write immediately on shutdown so nothing is lost.
-process.on("exit", () => {
+// Flush any pending write on shutdown so nothing is lost.
+export async function flushDb() {
   clearTimeout(writeTimer);
-  try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(cache, null, 2));
-  } catch {
-    /* ignore */
-  }
-});
+  try { await saveNow(); } catch { /* ignore */ }
+}
+if (!pool) process.on("exit", () => { try { fs.writeFileSync(DB_FILE, JSON.stringify(cache, null, 2)); } catch {} });
+for (const sig of ["SIGTERM", "SIGINT"]) {
+  process.on(sig, async () => { await flushDb(); process.exit(0); });
+}
 
 seedSpacesIfEmpty();
