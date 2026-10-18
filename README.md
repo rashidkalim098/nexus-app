@@ -1,4 +1,4 @@
-# NEXUS Social Platform
+# PulseFed Social Platform
 
 A React + Vite frontend with a real Node/Express backend — **every feature is
 backed by real data**, nothing is sample/mock data:
@@ -30,7 +30,7 @@ Now open `server/.env` in any text editor and set up email (see below), then:
 ```bash
 npm run dev
 ```
-You should see `NEXUS API running at http://localhost:8787`.
+You should see `PulseFed API running at http://localhost:8787`.
 
 **Terminal 2 — frontend**
 ```bash

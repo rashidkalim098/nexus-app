@@ -24,19 +24,19 @@ if (!useResend && isSmtpConfigured) {
 
 const PURPOSE_COPY = {
   verify: {
-    subject: "Verify your NEXUS account",
+    subject: "Verify your PulseFed account",
     heading: "Confirm your email",
-    body: "Enter this code in NEXUS to finish creating your account.",
+    body: "Enter this code in PulseFed to finish creating your account.",
   },
   login: {
-    subject: "Your NEXUS sign-in code",
+    subject: "Your PulseFed sign-in code",
     heading: "Sign-in verification",
-    body: "Enter this code to finish signing in to NEXUS.",
+    body: "Enter this code to finish signing in to PulseFed.",
   },
   reset: {
-    subject: "Reset your NEXUS password",
+    subject: "Reset your PulseFed password",
     heading: "Reset your password",
-    body: "Enter this code in NEXUS to set a new password.",
+    body: "Enter this code in PulseFed to set a new password.",
   },
 };
 
@@ -45,7 +45,7 @@ function otpEmailHtml(code, purpose) {
   return `
   <div style="font-family:Arial,sans-serif;max-width:420px;margin:0 auto;padding:32px 24px;background:#0E0E14;border-radius:16px;color:#F0EFF8;">
     <div style="font-size:20px;font-weight:800;letter-spacing:0.5px;margin-bottom:24px;">
-      <span style="background:linear-gradient(135deg,#7B6EF6,#E2608A);-webkit-background-clip:text;background-clip:text;color:transparent;">NEXUS</span>
+      <span style="background:linear-gradient(135deg,#7B6EF6,#E2608A);-webkit-background-clip:text;background-clip:text;color:transparent;">PulseFed</span>
     </div>
     <h1 style="font-size:18px;margin:0 0 8px;">${copy.heading}</h1>
     <p style="font-size:13px;color:#9B98B8;margin:0 0 24px;">${copy.body}</p>
@@ -58,7 +58,7 @@ function otpEmailHtml(code, purpose) {
 
 async function sendViaResend(to, code, purpose) {
   const copy = PURPOSE_COPY[purpose] || PURPOSE_COPY.verify;
-  const from = process.env.RESEND_FROM || "NEXUS <onboarding@resend.dev>";
+  const from = process.env.RESEND_FROM || "PulseFed <onboarding@resend.dev>";
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",

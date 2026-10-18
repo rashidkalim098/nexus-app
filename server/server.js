@@ -55,6 +55,6 @@ seedStarterSpaces();
 
 const PORT = process.env.PORT || 8787;
 app.listen(PORT, () => {
-  console.log(`\n  NEXUS API running at http://localhost:${PORT}`);
+  console.log(`\n  PulseFed API running at http://localhost:${PORT}`);
   console.log(`  Allowing requests from ${FRONTEND_URL}\n`);
 });

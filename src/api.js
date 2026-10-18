@@ -22,7 +22,7 @@ async function request(path, { method = "GET", body, isForm = false } = {}) {
       body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
     });
   } catch {
-    throw new Error("Can't reach the NEXUS server. Is it running?");
+    throw new Error("Can't reach the PulseFed server. Is it running?");
   }
 
   let data = {};

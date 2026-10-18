@@ -224,7 +224,7 @@ function AuthShell({ children }) {
         }}>
           <Sparkles size={18} color="#fff" />
         </div>
-        <span style={{ fontSize: 20, fontWeight: 800, letterSpacing: 0.5, color: "var(--text)" }}>NEXUS</span>
+        <span style={{ fontSize: 20, fontWeight: 800, letterSpacing: 0.5, color: "var(--text)" }}>PulseFed</span>
       </div>
       {children}
     </div>
@@ -281,7 +281,7 @@ function LoginScreen({ onOtpRequested, goto, showToast }) {
       <PrimaryButton onClick={submit} disabled={!email || !password || loading}>{loading ? "Signing in…" : "Sign in"}</PrimaryButton>
 
       <p style={{ textAlign: "center", fontSize: 13, color: "var(--text2)", marginTop: 20 }}>
-        New to NEXUS?{" "}
+        New to PulseFed?{" "}
         <span onClick={() => goto("register")} style={{ color: "var(--accent2)", fontWeight: 700, cursor: "pointer" }}>Create an account</span>
       </p>
     </AuthShell>
@@ -590,7 +590,7 @@ function TopBar({ theme, setTheme, screen, goto, currentUser, unreadNotifs, show
         <div style={{ width: 26, height: 26, borderRadius: 8, background: "linear-gradient(135deg, var(--accent), var(--pink))", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Sparkles size={14} color="#fff" />
         </div>
-        <span style={{ fontWeight: 800, fontSize: 15, color: "var(--text)", letterSpacing: 0.3 }}>NEXUS</span>
+        <span style={{ fontWeight: 800, fontSize: 15, color: "var(--text)", letterSpacing: 0.3 }}>PulseFed</span>
       </div>
 
       <div style={{ flex: 1, position: "relative", marginLeft: 6 }}>
@@ -847,7 +847,7 @@ function PostCard({ post, currentUser, onLike, onSave, onDelete, showToast, onOp
     try {
       await api.reportPost(post.id, "Reported from post menu");
       setReported(true);
-      showToast("Post reported. Thanks for helping keep NEXUS safe.");
+      showToast("Post reported. Thanks for helping keep PulseFed safe.");
     } catch (e) {
       showToast(e.message);
     }
@@ -2564,7 +2564,7 @@ export default function NexusApp() {
   return (
     <div style={{ ...rootVars, background: theme === "dark" ? "#050507" : "#E5E3F5", height: "100vh", display: "flex", alignItems: "stretch", justifyContent: "center" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'); * { box-sizing: border-box; } ::placeholder { color: var(--text3); } input, textarea { font-family: inherit; } @keyframes spin { to { transform: rotate(360deg); } } .spin { animation: spin 0.8s linear infinite; } @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } .spin { animation: none !important; } }`}</style>
-      <div style={frame} role="application" aria-label="NEXUS social platform">
+      <div style={frame} role="application" aria-label="PulseFed social platform">
         {authChecking ? (
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Loader2 size={28} color="var(--accent2)" className="spin" />

@@ -1,4 +1,4 @@
-# NEXUS ko Live Karna + Apna Domain Lagana — Poora Guide
+# PulseFed ko Live Karna + Apna Domain Lagana — Poora Guide
 
 Ye guide 3 hisso me hai:
 1. Backend live karna (Render)
@@ -19,7 +19,7 @@ Render aur Vercel dono GitHub se deploy karte hain, isliye pehle code ko GitHub 
    ```bash
    git init
    git add .
-   git commit -m "NEXUS app"
+   git commit -m "PulseFed app"
    git branch -M main
    git remote add origin https://github.com/<your-username>/nexus-app.git
    git push -u origin main
